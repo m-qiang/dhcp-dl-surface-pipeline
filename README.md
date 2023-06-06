@@ -47,15 +47,16 @@ The inputs of the dHCP DL-based surface pipeline include bias-corrected T2 and T
 ...
 ```
 
-To process the subject ```sub1```, you can run the pipeline by
+To process the subject ```sub1```, you can run the pipeline on GPU by
 ```
 python run_pipeline.py --in_dir='./YOUR_INPUT_DIR/sub1/' \
                        --out_dir='./YOUR_OUTPUT_DIR/' \
                        --T2='_desc-restore_T2w.nii.gz' \
                        --T1='_desc-restore_T1w.nii.gz' \
-                       --mask='_desc-brain_mask.nii.gz'
+                       --mask='_desc-brain_mask.nii.gz' \
+                       --device='cuda:0'
 ```
-where ```in_dir``` is the directory containing the input images and ```out_dir``` is the directory to save the output files. ```T2```, ```T1``` and ```mask``` are the suffix of the input T2, T1 images and brain masks.
+where ```in_dir``` is the directory containing the input images and ```out_dir``` is the directory to save the output files. ```T2```, ```T1``` and ```mask``` are the suffix of the input T2, T1 images and brain masks. The ```device``` tag indicates if the pipeline runs on a GPU or CPU.
 
 To process multiple subjects, you can run
 ```
@@ -63,7 +64,8 @@ python run_pipeline.py --in_dir='./YOUR_INPUT_DIR/*/' \
                        --out_dir='./YOUR_OUTPUT_DIR/' \
                        --T2='_desc-restore_T2w.nii.gz' \
                        --T1='_desc-restore_T1w.nii.gz' \
-                       --mask='_desc-brain_mask.nii.gz'
+                       --mask='_desc-brain_mask.nii.gz' \
+                       --device='cuda:0'
 ```
 
 This will save your output files (surfaces, spheres, etc.) in
