@@ -34,7 +34,7 @@ In addition, the Connectome Workbench is required for both pipeline (wb_command)
 
 ## Run Pipeline
 
-The inputs of the dHCP DL-based surface pipeline include bias-corrected T2 and T1 (optional) brain MRI images as well as a binary brain mask. Suppose you have bias-corrected T2, T1 images and brain masks in the following folders (note that the T1 image is optional)
+The inputs of the dHCP DL-based surface pipeline include bias-corrected T2 and T1 (optional) brain MRI images as well as a binary brain mask. The T1 image should be pre-aligned to the T2 MRI. Suppose you have bias-corrected T2, T1 images and brain masks in the following folders (note that the T1 image is optional)
 
 ```
 ./YOUR_INPUT_DIR/sub1/sub1_desc-restore_T2w.nii.gz
