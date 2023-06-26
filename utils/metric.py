@@ -176,43 +176,6 @@ def sulcal_depth(vert, face, verbose=False):
     return sulc
 
 
-def surface_roi(subj_dir, surf_hemi='left'):
-    """
-    Find the surface region of interest (ROI) from the
-    midthickness surface and cortical ribbon.
-    
-    Inputs:
-    - subj_dir: prefix of the directory for the subject
-    - surf_hemi: ['left', 'right']
-    
-    Returns:
-    - roi: surface region of interest, (|V|) numpy.array
-    """
-    
-    subprocess.run(
-        'wb_command -volume-to-surface-mapping '+\
-        subj_dir+'_ribbon.nii.gz '+\
-        subj_dir+'_hemi-'+surf_hemi+'_midthickness.surf.gii '+\
-        subj_dir+'_hemi-'+surf_hemi+'_roi.shape.gii '+\
-        '-enclosing', shell=True)
-    subprocess.run(
-        'wb_command -metric-remove-islands '+\
-        subj_dir+'_hemi-'+surf_hemi+'_midthickness.surf.gii '+\
-        subj_dir+'_hemi-'+surf_hemi+'_roi.shape.gii '+\
-        subj_dir+'_hemi-'+surf_hemi+'_roi.shape.gii', shell=True)
-    subprocess.run(
-        'wb_command -metric-fill-holes '+\
-        subj_dir+'_hemi-'+surf_hemi+'_midthickness.surf.gii '+\
-        subj_dir+'_hemi-'+surf_hemi+'_roi.shape.gii '+\
-        subj_dir+'_hemi-'+surf_hemi+'_roi.shape.gii', shell=True)
-
-    roi = nib.load(subj_dir+'_hemi-'+surf_hemi+'_roi.shape.gii')
-    roi = roi.agg_data()
-    # remove the gifti file, and save it later to change colormap
-    os.remove(subj_dir+'_hemi-'+surf_hemi+'_roi.shape.gii')
-    return roi
-
-
 def myelin_map(
     subj_dir,
     surf_hemi='left',
@@ -250,8 +213,7 @@ def myelin_map(
         subj_dir+'_hemi-'+surf_hemi+'_midthickness.surf.gii '+\
         subj_dir+'_hemi-'+surf_hemi+'_myelinmap.shape.gii '+\
         str(smooth_sigma)+' '+\
-        subj_dir+'_hemi-'+surf_hemi+'_smoothed_myelinmap.shape.gii '+\
-        '-roi '+subj_dir+'_hemi-'+surf_hemi+'_roi.shape.gii',
+        subj_dir+'_hemi-'+surf_hemi+'_smoothed_myelinmap.shape.gii',
         shell=True)
     
     myelin = nib.load(

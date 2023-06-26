@@ -1,5 +1,3 @@
-import torch
-import torch.nn.functional as F
 import numpy as np
 import ants
 import scipy
@@ -46,6 +44,7 @@ def registration(
     aff_metric='mattes',
     max_iter=5,
     min_dice=0.9,
+    seed=10086,
     verbose=False,
 ):
     """
@@ -61,6 +60,7 @@ def registration(
     - aff_metric: metric used for optimization ['mattes','meansquares', 'gc']
     - max_iter: maximum iterations for registration
     - min_dice: minimum required dice score after registration
+    - seed: random seed for reproducing results
     - verbose: if report
     
     Returns:
@@ -69,15 +69,19 @@ def registration(
     - trans_rigid: transformation for rigid registration, Ants.transformation
     - trans_affine: transformation for affine registration, Ants.transformation
     """
+    # set random seed
+    np.random.seed(seed)
     for n in range(max_iter):
-        
+        # use different random seed for each iteration
+        ants_seed = np.random.randint(1,10000)
         # initial rigid transformation
         trans_rigid = ants.registration(
             fixed=img_fix_ants,
             moving=img_move_ants,
             type_of_transform='QuickRigid', # 'AffineFast',
             aff_metric=aff_metric,
-            outprefix = out_prefix+'_rigid_',
+            outprefix=out_prefix+'_rigid_',
+            random_seed=ants_seed,
             verbose=verbose)
         img_rigid_ants = ants.apply_transforms(
             fixed=img_fix_ants,
@@ -93,6 +97,7 @@ def registration(
             type_of_transform='AffineFast', 
             aff_metric=aff_metric,
             outprefix=out_prefix+'_affine_',
+            random_seed=ants_seed,
             verbose=verbose)
         img_align_ants = ants.apply_transforms(
             fixed=img_fix_ants,

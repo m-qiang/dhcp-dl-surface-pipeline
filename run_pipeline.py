@@ -15,6 +15,9 @@ import torch.nn.functional as F
 from seg.unet import UNet
 from surface.net import MeshDeform
 from sphere.net.sunet import SphereDeform
+from sphere.net.loss import (
+    edge_distortion,
+    area_distortion)
 
 from utils.mesh import (
     apply_affine_mat,
@@ -40,7 +43,6 @@ from utils.metric import (
     cortical_thickness,
     curvature,
     sulcal_depth,
-    surface_roi,
     myelin_map)
 
 
@@ -192,13 +194,13 @@ if __name__ == '__main__':
     for subj_t2_dir in tqdm(subj_list):
         t_start = time.time()
         subj_id = subj_t2_dir.split('/')[-1][:-len(t2_suffix)]
-        subj_dir = '/'.join(subj_t2_dir.split('/')[:-1])+'/'
+        subj_in_dir = '/'.join(subj_t2_dir.split('/')[:-1])+'/'
         subj_t1_dir = ''
         subj_mask_dir = ''
         if t1_suffix:
-            subj_t1_dir = subj_dir + subj_id + t1_suffix
+            subj_t1_dir = subj_in_dir + subj_id + t1_suffix
         if mask_suffix:
-            subj_mask_dir = subj_dir + subj_id + mask_suffix
+            subj_mask_dir = subj_in_dir + subj_id + mask_suffix
         t1_exists = False
         mask_exists = False
         if os.path.exists(subj_t1_dir):
@@ -241,6 +243,10 @@ if __name__ == '__main__':
 
         # load brain mask if exists
         if mask_exists:
+            # copy brain mask to output directory
+            subprocess.run(
+                'cp '+subj_mask_dir+' '+subj_out_dir+'_brain_mask.nii.gz',
+                shell=True)
             brain_mask_nib = nib.load(subj_mask_dir)
             brain_mask = brain_mask_nib.get_fdata()
             img_t2_brain = img_t2_orig * brain_mask
@@ -408,6 +414,12 @@ if __name__ == '__main__':
                 save_dir=subj_out_dir+'_hemi-'+surf_hemi+'_midthickness.surf.gii',
                 surf_hemi=surf_hemi, surf_type='midthickness')
 
+            # send to gpu for the following processing
+            vert_wm = torch.Tensor(vert_wm_orig).unsqueeze(0).to(device)
+            vert_pial = torch.Tensor(vert_pial_orig).unsqueeze(0).to(device)
+            vert_mid = torch.Tensor(vert_mid_orig).unsqueeze(0).to(device)
+            face = torch.LongTensor(face_orig).unsqueeze(0).to(device)
+
             t_surf_end = time.time()
             t_surf = t_surf_end - t_surf_start
             print('Surface reconstruction ({}) ends. Runtime: {} sec.'.format(
@@ -426,8 +438,6 @@ if __name__ == '__main__':
                 wb_generate_inflated_surfaces(
                     subj_out_dir, surf_hemi, iter_scale=3.0)
             else:  # cuda acceleration
-                vert_mid = torch.Tensor(vert_mid_orig).unsqueeze(0).to(device)
-                face = torch.LongTensor(face_orig).unsqueeze(0).to(device)
                 vert_inflated, vert_vinflated = generate_inflated_surfaces(
                     vert_mid, face, iter_scale=3.0)
                 vert_inflated_orig = vert_inflated[0].cpu().numpy()
@@ -474,9 +484,21 @@ if __name__ == '__main__':
             with torch.no_grad():
                 vert_sphere = sphere_proj(
                     feat_160k, vert_sphere_in, n_steps=7)
-
-            vert_sphere = vert_sphere[0].cpu().numpy()
+                
+            # compute metric distortion
+            edge = torch.cat([
+                face[0,:,[0,1]],
+                face[0,:,[1,2]],
+                face[0,:,[2,0]]], dim=0).T
+            edge_distort = 100. * edge_distortion(
+                vert_sphere, vert_wm, edge).item()
+            area_distort = 100. * area_distortion(
+                vert_sphere, vert_wm, face).item()
+            print('Edge distortion: {}%'.format(np.round(edge_distort, 2)))
+            print('Area distortion: {}%'.format(np.round(area_distort, 2)))
+            
             # save as .surf.gii
+            vert_sphere = vert_sphere[0].cpu().numpy()
             save_gifti_surface(
                 vert_sphere, face_orig, 
                 save_dir=subj_out_dir+'_hemi-'+surf_hemi+'_sphere.surf.gii',
@@ -493,26 +515,11 @@ if __name__ == '__main__':
             print('Feature estimation ({}) starts ...'.format(surf_hemi))
             t_feature_start = time.time()
 
-            vert_wm = torch.Tensor(vert_wm_orig).unsqueeze(0).to(device)
-            vert_pial = torch.Tensor(vert_pial_orig).unsqueeze(0).to(device)
-            face = torch.LongTensor(face_orig).unsqueeze(0).to(device)
-
-            # find surface region of interest
-            # using midthickness surface and cortical ribbon
-            print('Find surface region of interest (ROI) ...', end=' ')
-            roi = surface_roi(
-                subj_dir=subj_out_dir, surf_hemi=surf_hemi)
-            save_gifti_metric(
-                metric=roi, 
-                save_dir=subj_out_dir+'_hemi-'+surf_hemi+'_roi.shape.gii',
-                surf_hemi=surf_hemi, metric_type='roi')
-            print('Done.')
-
             print('Estimate cortical thickness ...', end=' ')
             thickness = cortical_thickness(vert_wm, vert_pial)
             thickness = metric_dilation(
                 torch.Tensor(thickness[None,:,None]).to(device),
-                face, roi, n_iters=10)
+                face, n_iters=10)
             save_gifti_metric(
                 metric=thickness,
                 save_dir=subj_out_dir+'_hemi-'+surf_hemi+'_thickness.shape.gii',
@@ -546,10 +553,10 @@ if __name__ == '__main__':
                     subj_dir=subj_out_dir, surf_hemi=surf_hemi)
                 myelin = metric_dilation(
                     torch.Tensor(myelin[None,:,None]).to(device),
-                    face, roi, n_iters=10)
+                    face, n_iters=10)
                 smoothed_myelin = metric_dilation(
                     torch.Tensor(smoothed_myelin[None,:,None]).to(device),
-                    face, roi, n_iters=10)
+                    face, n_iters=10)
                 # save myelin map
                 save_gifti_metric(
                     metric=myelin, 
@@ -572,6 +579,7 @@ if __name__ == '__main__':
         # clean temp data
         os.remove(subj_out_dir+'_rigid_0GenericAffine.mat')
         os.remove(subj_out_dir+'_affine_0GenericAffine.mat')
+        os.remove(subj_out_dir+'_ribbon.nii.gz')
         # create .spec file for visualization
         create_wb_spec(subj_out_dir)
         t_end = time.time()

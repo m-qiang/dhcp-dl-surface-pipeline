@@ -68,7 +68,7 @@ python run_pipeline.py --in_dir='./YOUR_INPUT_DIR/*/' \
                        --device='cuda:0'
 ```
 
-This will save your output files (surfaces, spheres, etc.) in
+This will search and process all files with the name ```./YOUR_INPUT_DIR/*/*_desc-restore_T2w.nii.gz```, and will save your output files (surfaces, spheres, etc.) to
 ```
 ./YOUR_OUTPUT_DIR/sub1/...
 ./YOUR_OUTPUT_DIR/sub2/...

@@ -114,7 +114,7 @@ def save_gifti_metric(
     if metric_type == 'thickness':
         _metric_type = 'Thickness'
         ScaleMode = 'MODE_AUTO_SCALE_PERCENTAGE'
-        AutoScalePercentageValues = '98.000000 2.000000 2.000000 98.000000'
+        AutoScalePercentageValues = '98.000000 2.000000 7.000000 98.000000'
         UserScaleValues = '-100.000000 0.000000 0.000000 100.000000'
         PaletteName = 'videen_style'
         DisplayPositiveData = 'true'
@@ -151,18 +151,27 @@ def save_gifti_metric(
         DisplayZeroData = 'false'
         DisplayNegativeData = 'false'
         
-    elif metric_type == 'myelinmap' or\
-         metric_type == 'smoothed_myelinmap':
+    elif metric_type == 'myelinmap':
         _metric_type = 'MyelinMap'
         # ScaleMode = 'MODE_USER_SCALE'
         ScaleMode = 'MODE_AUTO_SCALE_PERCENTAGE'
-        AutoScalePercentageValues = '98.000000 2.000000 2.000000 96.000000'
+        AutoScalePercentageValues = '98.000000 2.000000 4.000000 96.000000'
         UserScaleValues = '0.000000 0.000000 1.000000 1.700000'
         PaletteName = 'videen_style'
         DisplayPositiveData = 'true'
         DisplayZeroData = 'false'
         DisplayNegativeData = 'false'
         
+    elif metric_type == 'smoothed_myelinmap':
+        _metric_type = 'MyelinMap'
+        # ScaleMode = 'MODE_USER_SCALE'
+        ScaleMode = 'MODE_AUTO_SCALE_PERCENTAGE'
+        AutoScalePercentageValues = '98.000000 2.000000 7.000000 98.000000'
+        UserScaleValues = '0.000000 0.000000 1.000000 1.700000'
+        PaletteName = 'videen_style'
+        DisplayPositiveData = 'true'
+        DisplayZeroData = 'false'
+        DisplayNegativeData = 'false'
     # meta data for color map
     cmap_meta = \
     '<PaletteColorMapping Version="1">\n'+\
