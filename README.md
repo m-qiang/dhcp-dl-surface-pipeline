@@ -1,83 +1,159 @@
 # dHCP Learning-based Surface Pipeline
 
-The dHCP deep learning (DL)-based surface pipeline integrates fast and robust DL-based approaches. The pipeline provides
-
-* Cortical surface reconstruction
-* Cortical surface inflation
-* Spherical mapping
-* Cortical feature estimation
-
-for fetal and neonatal structural brain MRI analysis. The pipeline is accelerated by GPU and only requires ~30 seconds to process a single subject.
-
+This the **training** instruction for the dHCP deep learning (DL)-based surface pipeline.
 
 ## Installation
 
-### Python/PyTorch
+### Python/PyTorch/PyTorch3D
 
-The dHCP DL-based surface pipeline is based on Python/PyTorch. We recommend to install [Anaconda](https://www.anaconda.com/download) and use ```conda``` to install the dependencies. After installing the Anaconda, you can run 
+The training of the dHCP DL-based surface pipeline is based on Python/PyTorch/PyTorch3D. We recommend installing [Anaconda](https://www.anaconda.com/download) and use ```conda``` to install the dependencies. After installing the Anaconda, you can run 
 ```
 . install.sh
 ```
- which creates a new virtual environment ```dhcp``` and installs PyTorch as well as other required Python packages in the environment.
-
-Otherwise, if you do not have conda installation, you can run the following command to install the required packages with PyPI.
-```
-pip install torch==1.13.0+cu116 --extra-index-url https://download.pytorch.org/whl/cu116
-
-pip install tqdm numpy==1.23.5 scipy==1.10.1 nibabel==5.0.1 antspyx==0.3.7
-```
-
-### Connectome Workbench
-
-In addition, the Connectome Workbench is required for both pipeline (wb_command) and visualization (wb_view). You can install the [Connectome Workbench](https://www.humanconnectome.org/software/get-connectome-workbench) following the instructions.
+to create a new virtual environment ```dhcp``` and install [PyTorch](https://pytorch.org/), [PyTorch3D](https://pytorch3d.org/), as well as other required Python packages in the environment.
 
 
-## Run Pipeline
+### FreeSurfer
+We use FreeSurfer to generate ground truth spheres for learning-based spherical projection. You can install [FreeSurfer](https://surfer.nmr.mgh.harvard.edu/) following the instructions.
 
-The inputs of the dHCP DL-based surface pipeline include bias-corrected T2 and T1 (optional) brain MRI images as well as a binary brain mask. The T1 image should be pre-aligned to the T2 MRI. Suppose you have bias-corrected T2, T1 images and brain masks in the following folders (note that the T1 image is optional)
+
+## Training
+
+### Cortical Surface Reconstruction
+The codes for the training of cortical surface reconstruction are included in the folder ```./surface/```. We need to train four neural network models for WM/pial surfaces and left/right brain hemispheres. The training requires at least 12GB GPU memory.
+
+#### Data Proprocessing
+The training requires bias corrected T2 MRI and binary brain mask as the inputs, as well as the WM and pial surfaces as the ground truth. We assume the original data are in the following directories:
 
 ```
-./YOUR_INPUT_DIR/sub1/sub1_desc-restore_T2w.nii.gz
-./YOUR_INPUT_DIR/sub1/sub1_desc-restore_T1w.nii.gz
-./YOUR_INPUT_DIR/sub1/sub1_desc-brain_mask.nii.gz
-
-./YOUR_INPUT_DIR/sub2/sub2_desc-restore_T2w.nii.gz
-./YOUR_INPUT_DIR/sub2/sub2_desc-brain_mask.nii.gz
-
-...
+/YOUR_DATA
+    /sub1
+        /sub1_desc-restore_T2w.nii.gz
+        /sub1_desc-brain_mask.nii.gz
+        /sub1_hemi-left_pial.surf.gii
+        /sub1_hemi-left_wm.surf.gii
+        /sub1_hemi-right_pial.surf.gii
+        /sub1_hemi-right_wm.surf.gii
+    /sub2
+        /...
+    /sub3
+        /...
+    /...
 ```
 
-To process the subject ```sub1```, you can run the pipeline on GPU by
+Then you can preprocess the data by running
 ```
-python run_pipeline.py --in_dir='./YOUR_INPUT_DIR/sub1/' \
-                       --out_dir='./YOUR_OUTPUT_DIR/' \
-                       --T2='_desc-restore_T2w.nii.gz' \
-                       --T1='_desc-restore_T1w.nii.gz' \
-                       --mask='_desc-brain_mask.nii.gz' \
-                       --device='cuda:0'
+cd ./surface
+python preprocess.py --orig_dir='/YOUR_DATA/'\
+                     --save_dir='./surface/data/'\
+                     --T2='_desc-restore_T2w.nii.gz'\
+                     --mask='_desc-brain_mask.nii.gz'
 ```
-where ```in_dir``` is the directory containing the input images and ```out_dir``` is the directory to save the output files. ```T2```, ```T1``` and ```mask``` are the suffix of the input T2, T1 images and brain masks. The ```device``` tag indicates if the pipeline runs on a GPU or CPU.
+where ```orig_dir``` is the directory containing the original data,  ```save_dir``` is the directory to save the processed data, ```T2``` and ```mask``` are the suffix of the input T2 images and brain masks. 
 
-To process multiple subjects, you can run
-```
-python run_pipeline.py --in_dir='./YOUR_INPUT_DIR/*/' \
-                       --out_dir='./YOUR_OUTPUT_DIR/' \
-                       --T2='_desc-restore_T2w.nii.gz' \
-                       --T1='_desc-restore_T1w.nii.gz' \
-                       --mask='_desc-brain_mask.nii.gz' \
-                       --device='cuda:0'
-```
+The preprocessing will split the original data into training/validation/testing data and save to ```./surface/data/```. The T2 image will be affinely aligned to the dHCP 40-week atlas and the cortical surfaces will be remeshed to 150k vertices for training.
 
-This will search and process all files with the name ```./YOUR_INPUT_DIR/*/*_desc-restore_T2w.nii.gz```, and will save your output files (surfaces, spheres, etc.) to
+#### WM Surface
+To train the model for WM surface reconstruction, please run
 ```
-./YOUR_OUTPUT_DIR/sub1/...
-./YOUR_OUTPUT_DIR/sub2/...
-...
+python train.py --surf_type='wm'\
+                --surf_hemi='left'\
+                --tag='YOUR_TAG'\
+                --device='cuda:0'\
+                --n_epoch=200\
+                --sigma=1.0\
+                --w_nc=3.0\
+                --w_edge=0.3
 ```
+where ```surf_type```=['wm', 'pial'] is the type of the surface, ```surf_hemi```=['left','right'] is the brain hemisphere, ```tag``` is a str to identify different experiments, ```n_epoch``` is the total training epochs, ```sigma``` is the standard deviation for Gaussian filter, ```w_nc``` is the weight of normal consistency loss, and ```w_edge``` is the weight of the edge length loss.
 
-
-For the details of all arguments, please run
+All model checkpoints and training logs are saved to ```./surface/ckpts/```. After training WM surface reconstruction, select the model checkpoints with the best validation results and move them to 
 ```
-Python run_pipeline.py --help
+./surface/model/model_hemi-left_wm.pt
+./surface/model/model_hemi-right_wm.pt
 ```
 
+#### Pial Surface
+For the training of pial surface reconstruction, please run
+```
+python train.py --surf_type='pial'\
+                --surf_hemi='left'\
+                --tag='YOUR_TAG'\
+                --device='cuda:0'\
+                --n_epoch=200\
+                --sigma=1.0\
+                --w_nc=3.0\
+                --w_edge=0.3
+```
+
+After training, move the best model checkpoints to 
+```
+./surface/model/model_hemi-left_pial.pt
+./surface/model/model_hemi-right_pial.pt
+```
+
+
+
+### Spherical Projection
+The codes for training spherical projection are in the ```./sphere/``` folder. We use FreeSurfer to inflate and project the predicted WM surfaces to spheres as the ground truth. The dataset can be generated by running:
+```
+cd ./sphere
+. surface_to_sphere.sh
+```
+This will create GT spheres for train/valid/test data and left/right hemispheres, depending on the arguments in ```surface_to_sphere.sh```. The GT spheres will be saved to ```./sphere/data/```.
+
+After generating the data, you can run the following code to train Spherical U-Net for spherical mapping:
+```
+python train.py --surf_hemi='left'\
+                --tag='YOUR_TAG'\
+                --device='cuda:0'\
+                --n_epoch=200\
+                --w_geo=2.0\
+                --w_edge=1.0\
+                --w_area=0.5
+```
+where ```w_geo```, ```w_edge``` and ```w_area``` are the weights of geodesic, edge and area distortions.
+
+After training, move the best model checkpoints to 
+```
+./sphere/model/model_hemi-left_sphere.pt
+./sphere/model/model_hemi-right_sphere.pt
+```
+
+
+
+### Cortical Ribbon
+We also train a U-Net to predict the segmentation of cortical gray matter. The cortical ribbon is only used as the region of interest for the computation of myelin map once the T1 image is provided. The codes for training are included in ```./seg/```.
+
+Suppose your dataset has the following structure:
+```
+/YOUR_DATA
+    /sub1
+        /sub1_desc-restore_T2w.nii.gz
+        /sub1_desc-brain_mask.nii.gz
+        /sub1_tissue_label.nii.gz
+    /sub2
+        /...
+    /sub3
+        /...
+    /...
+```
+You can generate ground truth cortical ribbon segmentations by running
+```
+cd ./seg
+python preprocess.py --orig_dir='/YOUR_DATA/'\
+                     --save_dir='./seg/data/'\
+                     --T2='_desc-restore_T2w.nii.gz'\
+                     --seg='_tissue_label.nii.gz'\
+                     --mask='_desc-brain_mask.nii.gz'
+```
+where the tag ```seg``` is the suffix of the tissue segmentation files. Then, the segmentation network can be trained by
+```
+python train.py --tag='YOUR_TAG'\
+                --device='cuda:0'\
+                --n_epoch=200
+```
+After training, move the best model checkpoints to 
+```
+./seg/model/model_seg.pt
+```
