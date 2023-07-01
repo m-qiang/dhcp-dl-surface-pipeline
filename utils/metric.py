@@ -179,8 +179,7 @@ def sulcal_depth(vert, face, verbose=False):
 def myelin_map(
     subj_dir,
     surf_hemi='left',
-    myelin_sigma=5/(2*(np.sqrt(2*np.log(2)))),
-    smooth_sigma=4/(2*(np.sqrt(2*np.log(2))))
+    myelin_sigma=5/(2*(np.sqrt(2*np.log(2))))
 ):
     """
     Estimate the myelin map from the T1/T2 ratio, cortical ribbon,
@@ -190,11 +189,9 @@ def myelin_map(
     - subj_dir: prefix of the directory for the subject
     - surf_hemi: ['left', 'right']
     - myelin_sigma: standard deviation for volume-to-surface mapping
-    - smooth_sigma: standard deviation for smoothing
 
     Returns:
     - myelin: myelin map, (|V|) numpy.array
-    - smoothed_myelin: smoothed myelin map, (|V|) numpy.array
     """
     
     # create myelin map
@@ -206,8 +203,34 @@ def myelin_map(
         '-myelin-style '+subj_dir+'_ribbon.nii.gz '+\
         subj_dir+'_hemi-'+surf_hemi+'_thickness.shape.gii '+\
         str(myelin_sigma), shell=True)
+    
+    # remove the gifti file, and save it later to change colormap
+    myelin = nib.load(
+        subj_dir+'_hemi-'+surf_hemi+'_myelinmap.shape.gii')
+    myelin = myelin.agg_data()
+    os.remove(
+        subj_dir+'_hemi-'+surf_hemi+'_myelinmap.shape.gii')
+    return myelin
+    
+    
+def smooth_myelin_map(
+    subj_dir,
+    surf_hemi='left',
+    smooth_sigma=4/(2*(np.sqrt(2*np.log(2))))
+):
+    """
+    Smooth the myelin map.
+    
+    Inputs:
+    - subj_dir: prefix of the directory for the subject
+    - surf_hemi: ['left', 'right']
+    - smooth_sigma: standard deviation for smoothing
 
-    # created smoothed myelin map
+    Returns:
+    - smoothed_myelin: smoothed myelin map, (|V|) numpy.array
+    """
+
+    # smooth the myelin map
     subprocess.run(
         'wb_command -metric-smoothing '+\
         subj_dir+'_hemi-'+surf_hemi+'_midthickness.surf.gii '+\
@@ -216,17 +239,11 @@ def myelin_map(
         subj_dir+'_hemi-'+surf_hemi+'_smoothed_myelinmap.shape.gii',
         shell=True)
     
-    myelin = nib.load(
-        subj_dir+'_hemi-'+surf_hemi+'_myelinmap.shape.gii')
+    # remove the gifti file, and save it later to change colormap
     smoothed_myelin = nib.load(
         subj_dir+'_hemi-'+surf_hemi+'_smoothed_myelinmap.shape.gii')
-    myelin = myelin.agg_data()
     smoothed_myelin = smoothed_myelin.agg_data()
-
-    # remove the gifti file, and save it later to change colormap
-    os.remove(
-        subj_dir+'_hemi-'+surf_hemi+'_myelinmap.shape.gii')
     os.remove(
         subj_dir+'_hemi-'+surf_hemi+'_smoothed_myelinmap.shape.gii')
     
-    return myelin, smoothed_myelin
+    return smoothed_myelin

@@ -4,13 +4,15 @@ import time
 import argparse
 import subprocess
 import numpy as np
-import ants
 import nibabel as nib
 from tqdm import tqdm
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+import ants
+from ants.utils.bias_correction import n4_bias_field_correction
 
 from seg.unet import UNet
 from surface.net import MeshDeform
@@ -29,6 +31,7 @@ from utils.register import (
     ants_trans_to_mat)
 
 from utils.io import (
+    Logging,
     save_numpy_to_nifti,
     save_gifti_surface,
     save_gifti_metric,
@@ -43,7 +46,8 @@ from utils.metric import (
     cortical_thickness,
     curvature,
     sulcal_depth,
-    myelin_map)
+    myelin_map,
+    smooth_myelin_map)
 
 
 
@@ -190,11 +194,11 @@ face_right_id = barycentric_right.agg_data('triangle')
 
 # ------ run dHCP DL-based surface pipeline ------
 if __name__ == '__main__':
-    subj_list = sorted(glob.glob(in_dir+'*'+t2_suffix))
-    for subj_t2_dir in tqdm(subj_list):
-        t_start = time.time()
-        subj_id = subj_t2_dir.split('/')[-1][:-len(t2_suffix)]
-        subj_in_dir = '/'.join(subj_t2_dir.split('/')[:-1])+'/'
+    subj_list = sorted(glob.glob(in_dir))
+    for subj_in_dir in tqdm(subj_list):
+        # check existence of all directories
+        subj_id = subj_in_dir.split('/')[-2]
+        subj_t2_dir = subj_in_dir + subj_id + t2_suffix
         subj_t1_dir = ''
         subj_mask_dir = ''
         if t1_suffix:
@@ -203,13 +207,15 @@ if __name__ == '__main__':
             subj_mask_dir = subj_in_dir + subj_id + mask_suffix
         t1_exists = False
         mask_exists = False
+        if not os.path.exists(subj_t2_dir):
+            # if the T2 image does not exist
+            print("T2 image does not exist.")
+            continue
         if os.path.exists(subj_t1_dir):
             t1_exists = True
         if os.path.exists(subj_mask_dir):
             mask_exists = True
 
-        print('====================')
-        print('Start processing subject: {}'.format(subj_id))
         # directory for saving output: out_dir/subj_id/
         subj_out_dir = out_dir + subj_id + '/'
         # create output directory
@@ -218,14 +224,16 @@ if __name__ == '__main__':
             # add subject id as prefix
         subj_out_dir = subj_out_dir + subj_id
 
+        # initialize logger
+        logger = Logging(subj_out_dir)
+        # start processing
+        logger.info('========================================')
+        logger.info('Start processing subject: {}'.format(subj_id))
+        
+        t_start = time.time()
         # ------ Load Data ------
-        print('Load T2 image ...', end=' ')
-        # copy T2 image to output directory
-        subprocess.run(
-            'cp '+subj_t2_dir+' '+subj_out_dir+'_T2w.nii.gz',
-            shell=True)
-
-        # load T2 image
+        logger.info('Load T2 image ...', end=' ')
+        # load original T2 image
         img_t2_orig_ants = ants.image_read(subj_t2_dir)
         img_t2_orig = img_t2_orig_ants.numpy()
 
@@ -239,58 +247,89 @@ if __name__ == '__main__':
             img_t2_orig_ants.origin,
             img_t2_orig_ants.spacing,
             img_t2_orig_ants.direction)
-        print('Done.')
-
+        logger.info('Done.')
+        
         # load brain mask if exists
         if mask_exists:
-            # copy brain mask to output directory
-            subprocess.run(
-                'cp '+subj_mask_dir+' '+subj_out_dir+'_brain_mask.nii.gz',
-                shell=True)
+            logger.info('Load brain mask ...', end=' ')
             brain_mask_nib = nib.load(subj_mask_dir)
             brain_mask = brain_mask_nib.get_fdata()
-            img_t2_brain = img_t2_orig * brain_mask
+            logger.info('Done.')
         else:
-            img_t2_brain = img_t2_orig
-        img_t2_brain_ants = ants.from_numpy(
-            img_t2_brain, *args_t2_orig_ants)
+            brain_mask = np.ones_like(img_t2_orig)
+        brain_mask_ants = ants.from_numpy(
+            brain_mask, *args_t2_orig_ants)
 
         # load t1 image if exists
         if t1_exists:
-            print('Load T1 image ...', end=' ')
-            # copy T1 image to output directory
-            subprocess.run(
-                'cp '+subj_t1_dir+' '+subj_out_dir+'_T1w.nii.gz',
-                shell=True)
+            logger.info('Load T1 image ...', end=' ')
+            # load original T1 image
             img_t1_orig_ants = ants.image_read(subj_t1_dir)
             img_t1_orig = img_t1_orig_ants.numpy()
-            print('Done.')
+            logger.info('Done.')
 
             # compute T1-to-T2 ratio
-            print('Compute T1/T2 ratio ...', end=' ')
+            logger.info('Compute T1/T2 ratio ...', end=' ')
             img_t1_t2_ratio = (
                 img_t1_orig / (img_t2_orig+1e-12)).clip(0,100)
+            img_t1_t2_ratio = img_t1_t2_ratio * brain_mask
             save_numpy_to_nifti(
                 img_t1_t2_ratio, affine_t2_orig,
                 subj_out_dir+'_T1wDividedByT2w.nii.gz')
-            print('Done.')
+            logger.info('Done.')
 
-            
+
+        # ------ N4 bias field correction ------
+        logger.info('----------------------------------------')
+        logger.info('Bias field correction starts ...')
+        t_bias_start = time.time()
+
+        # N4 bias field correction
+        img_t2_restore_ants = n4_bias_field_correction(
+            img_t2_orig_ants, brain_mask_ants,
+            shrink_factor=4,
+            convergence={"iters": [50, 50, 50], "tol": 0.001},
+            spline_param=100,
+            verbose=verbose)
+        img_t2_restore = img_t2_restore_ants.numpy()
+        img_t2_restore_brain = img_t2_restore * brain_mask
+        img_t2_restore_brain_ants = ants.from_numpy(
+            img_t2_restore_brain, *args_t2_orig_ants)
+
+        # save brain extracted and bias corrected T2w image
+        save_numpy_to_nifti(
+            img_t2_restore_brain, affine_t2_orig,
+            subj_out_dir+'_T2w_restore_brain.nii.gz')
+        
+        t_bias_end = time.time()
+        t_bias = t_bias_end - t_bias_start
+        logger.info('T2 bias field correction ends. Runtime: {} sec.'.format(
+            np.round(t_bias,4)))
+
+        
         # ------ Affine Registration ------
-        print('--------------------')
-        print('Affine registration starts ...')
+        logger.info('----------------------------------------')
+        logger.info('Affine registration starts ...')
         t_align_start = time.time()
 
         # ants affine registration
         img_t2_align_ants, affine_t2_align, trans_rigid,\
-        trans_affine = registration(
-            img_move_ants=img_t2_brain_ants,
+        trans_affine, align_dice = registration(
+            img_move_ants=img_t2_restore_brain_ants,
             img_fix_ants=img_t2_atlas_ants,
             affine_fix=affine_t2_atlas,
             out_prefix=subj_out_dir,
             max_iter=max_regist_iter,
             min_dice=min_regist_dice,
             verbose=verbose)
+        
+        # check dice score
+        if align_dice >= min_regist_dice:
+            logger.info('Dice after registration: {}'.format(align_dice))
+        else:
+            logger.info('Error! Affine registration failed!')
+            logger.info('Expected Dice>{} after registraion, got Dice={}.'.format(
+                min_regist_dice, align_dice))
 
         # args for converting numpy array to ants image
         args_t2_align_ants = (
@@ -301,13 +340,13 @@ if __name__ == '__main__':
 
         t_align_end = time.time()
         t_align = t_align_end - t_align_start
-        print('Affine registration ends. Runtime: {} sec.'.format(
+        logger.info('Affine registration ends. Runtime: {} sec.'.format(
             np.round(t_align, 4)))
 
 
-        # ------ Cortical Ribbon Seg ------
-        print('--------------------')
-        print('Cortical ribbon seg starts ...')
+        # ------ Cortical Ribbon Segmentation ------
+        logger.info('----------------------------------------')
+        logger.info('Cortical ribbon seg starts ...')
         t_ribbon_start = time.time()
 
         # input volume for nn model
@@ -346,14 +385,14 @@ if __name__ == '__main__':
 
         t_ribbon_end = time.time()
         t_ribbon = t_ribbon_end - t_ribbon_start
-        print('Cortical ribbon seg ends .... Runtime: {} sec.'.format(
+        logger.info('Cortical ribbon seg ends. Runtime: {} sec.'.format(
             np.round(t_ribbon, 4)))
 
 
         for surf_hemi in ['left', 'right']:    
             # ------ Surface Reconstruction ------
-            print('--------------------')
-            print('Surface reconstruction ({}) starts ...'.format(surf_hemi))
+            logger.info('----------------------------------------')
+            logger.info('Surface reconstruction ({}) starts ...'.format(surf_hemi))
             t_surf_start = time.time()
 
             # set model, input vertices and faces
@@ -422,13 +461,13 @@ if __name__ == '__main__':
 
             t_surf_end = time.time()
             t_surf = t_surf_end - t_surf_start
-            print('Surface reconstruction ({}) ends. Runtime: {} sec.'.format(
+            logger.info('Surface reconstruction ({}) ends. Runtime: {} sec.'.format(
                 surf_hemi, np.round(t_surf, 4)))
 
 
             # ------ Surface Inflation ------
-            print('--------------------')
-            print('Surface inflation ({}) starts ...'.format(surf_hemi))
+            logger.info('----------------------------------------')
+            logger.info('Surface inflation ({}) starts ...'.format(surf_hemi))
             t_inflate_start = time.time()
 
             # create inflated and very_inflated surfaces
@@ -455,13 +494,13 @@ if __name__ == '__main__':
 
             t_inflate_end = time.time()
             t_inflate = t_inflate_end - t_inflate_start
-            print('Surface inflation ({}) ends. Runtime: {} sec.'.format(
+            logger.info('Surface inflation ({}) ends. Runtime: {} sec.'.format(
                 surf_hemi, np.round(t_inflate, 4)))
 
 
             # ------ Spherical Mapping ------
-            print('--------------------')
-            print('Spherical mapping ({}) starts ...'.format(surf_hemi))
+            logger.info('----------------------------------------')
+            logger.info('Spherical mapping ({}) starts ...'.format(surf_hemi))
             t_sphere_start = time.time()
 
             # set model, input vertices and faces
@@ -494,8 +533,8 @@ if __name__ == '__main__':
                 vert_sphere, vert_wm, edge).item()
             area_distort = 100. * area_distortion(
                 vert_sphere, vert_wm, face).item()
-            print('Edge distortion: {}%'.format(np.round(edge_distort, 2)))
-            print('Area distortion: {}%'.format(np.round(area_distort, 2)))
+            logger.info('Edge distortion: {}%'.format(np.round(edge_distort, 2)))
+            logger.info('Area distortion: {}%'.format(np.round(area_distort, 2)))
             
             # save as .surf.gii
             vert_sphere = vert_sphere[0].cpu().numpy()
@@ -506,16 +545,16 @@ if __name__ == '__main__':
 
             t_sphere_end = time.time()
             t_sphere = t_sphere_end - t_sphere_start
-            print('Spherical mapping ({}) ends. Runtime: {} sec.'.format(
+            logger.info('Spherical mapping ({}) ends. Runtime: {} sec.'.format(
                 surf_hemi, np.round(t_sphere, 4)))
 
 
             # ------ Cortical Feature Estimation ------
-            print('--------------------')
-            print('Feature estimation ({}) starts ...'.format(surf_hemi))
+            logger.info('----------------------------------------')
+            logger.info('Feature estimation ({}) starts ...'.format(surf_hemi))
             t_feature_start = time.time()
 
-            print('Estimate cortical thickness ...', end=' ')
+            logger.info('Estimate cortical thickness ...', end=' ')
             thickness = cortical_thickness(vert_wm, vert_pial)
             thickness = metric_dilation(
                 torch.Tensor(thickness[None,:,None]).to(device),
@@ -524,67 +563,70 @@ if __name__ == '__main__':
                 metric=thickness,
                 save_dir=subj_out_dir+'_hemi-'+surf_hemi+'_thickness.shape.gii',
                 surf_hemi=surf_hemi, metric_type='thickness')
-            print('Done.')
+            logger.info('Done.')
 
-            print('Estimate curvature ...', end=' ')
+            logger.info('Estimate curvature ...', end=' ')
             curv = curvature(vert_wm, face, smooth_iters=5)
             save_gifti_metric(
                 metric=curv, 
                 save_dir=subj_out_dir+'_hemi-'+surf_hemi+'_curv.shape.gii',
                 surf_hemi=surf_hemi, metric_type='curv')
-            print('Done.')
+            logger.info('Done.')
 
-
-            print('Estimate sulcal depth ...', end=' ')
+            logger.info('Estimate sulcal depth ...', end=' ')
             sulc = sulcal_depth(vert_wm, face, verbose=False)
             save_gifti_metric(
                 metric=sulc,
                 save_dir=subj_out_dir+'_hemi-'+surf_hemi+'_sulc.shape.gii',
                 surf_hemi=surf_hemi, metric_type='sulc')
-            print('Done.')
+            logger.info('Done.')
 
             # estimate myelin map based on
             # t1-to-t2 ratio, midthickness surface, 
             # cortical thickness and cortical ribbon
 
             if t1_exists:
-                print('Estimate myelin map ...', end=' ')
-                myelin, smoothed_myelin = myelin_map(
+                logger.info('Estimate myelin map ...', end=' ')
+                myelin = myelin_map(
                     subj_dir=subj_out_dir, surf_hemi=surf_hemi)
+                # metric dilation
                 myelin = metric_dilation(
                     torch.Tensor(myelin[None,:,None]).to(device),
                     face, n_iters=10)
-                smoothed_myelin = metric_dilation(
-                    torch.Tensor(smoothed_myelin[None,:,None]).to(device),
-                    face, n_iters=10)
                 # save myelin map
                 save_gifti_metric(
-                    metric=myelin, 
+                    metric=myelin,
                     save_dir=subj_out_dir+'_hemi-'+surf_hemi+'_myelinmap.shape.gii',
                     surf_hemi=surf_hemi, metric_type='myelinmap')
+                
+                # smooth myelin map
+                smoothed_myelin = smooth_myelin_map(
+                    subj_dir=subj_out_dir, surf_hemi=surf_hemi)
                 save_gifti_metric(
                     metric=smoothed_myelin, 
                     save_dir=subj_out_dir+'_hemi-'+surf_hemi+\
                              '_smoothed_myelinmap.shape.gii',
                     surf_hemi=surf_hemi,
                     metric_type='smoothed_myelinmap')
-                print('Done.')
+                logger.info('Done.')
 
             t_feature_end = time.time()
             t_feature = t_feature_end - t_feature_start
-            print('Feature estimation ({}) ends. Runtime: {} sec.'.format(
+            logger.info('Feature estimation ({}) ends. Runtime: {} sec.'.format(
                 surf_hemi, np.round(t_feature, 4)))
 
-        print('--------------------')
+        logger.info('----------------------------------------')
         # clean temp data
         os.remove(subj_out_dir+'_rigid_0GenericAffine.mat')
         os.remove(subj_out_dir+'_affine_0GenericAffine.mat')
         os.remove(subj_out_dir+'_ribbon.nii.gz')
+        if os.path.exists(subj_out_dir+'_T1wDividedByT2w.nii.gz'):
+            os.remove(subj_out_dir+'_T1wDividedByT2w.nii.gz')
         # create .spec file for visualization
         create_wb_spec(subj_out_dir)
         t_end = time.time()
-        print('Finished. Total runtime: {} sec.'.format(
+        logger.info('Finished. Total runtime: {} sec.'.format(
             np.round(t_end-t_start, 4)))
-        print('====================')
+        logger.info('========================================')
 
         

@@ -4,6 +4,23 @@ from nibabel.gifti import gifti
 import glob
 from xml.etree import ElementTree as et
 
+
+class Logging:
+    """
+    Inputs:
+    - subj_dir: prefix of the directory for the subject
+    - message: information to be logged
+    """
+    def __init__(self, subj_dir):
+        self.subj_dir = subj_dir
+        # clean the previous log
+        with open(subj_dir+'.log', 'w') as f:
+            f.write('')
+    def info(self, message, end='\n'):
+        print(message, end=end)
+        with open(self.subj_dir+'.log', 'a') as f:
+            f.write(message+end)
+    
     
 def save_numpy_to_nifti(img, affine, save_dir):
     """
@@ -153,8 +170,8 @@ def save_gifti_metric(
         
     elif metric_type == 'myelinmap':
         _metric_type = 'MyelinMap'
-        # ScaleMode = 'MODE_USER_SCALE'
-        ScaleMode = 'MODE_AUTO_SCALE_PERCENTAGE'
+        ScaleMode = 'MODE_USER_SCALE'
+        # ScaleMode = 'MODE_AUTO_SCALE_PERCENTAGE'
         AutoScalePercentageValues = '98.000000 2.000000 4.000000 96.000000'
         UserScaleValues = '0.000000 0.000000 1.000000 1.700000'
         PaletteName = 'videen_style'
@@ -164,8 +181,8 @@ def save_gifti_metric(
         
     elif metric_type == 'smoothed_myelinmap':
         _metric_type = 'MyelinMap'
-        # ScaleMode = 'MODE_USER_SCALE'
-        ScaleMode = 'MODE_AUTO_SCALE_PERCENTAGE'
+        ScaleMode = 'MODE_USER_SCALE'
+        # ScaleMode = 'MODE_AUTO_SCALE_PERCENTAGE'
         AutoScalePercentageValues = '98.000000 2.000000 7.000000 98.000000'
         UserScaleValues = '0.000000 0.000000 1.000000 1.700000'
         PaletteName = 'videen_style'
@@ -258,7 +275,7 @@ def create_wb_spec(subj_dir):
                     Selected='true').text = file_name.split('/')[-1]
 
     # add volume files to .spec
-    file_name = subj_dir+'_T2w.nii.gz'
+    file_name = subj_dir+'_T2w_restore_brain.nii.gz'
     # add to xml tree
     et.SubElement(
         caret, 'DataFile',

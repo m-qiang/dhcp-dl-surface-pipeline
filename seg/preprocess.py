@@ -55,6 +55,9 @@ def process_data(orig_dir, save_dir, t2_suffix, seg_suffix, mask_suffix=None):
         './template/dhcp_week-40_template_T2w.nii.gz').affine
     img_fix = img_fix_ants
 
+    # minimum dice score for registration
+    min_dice=0.9
+    
     for n in range(3):
         subj_list = sorted(os.listdir(save_dir+data_split[n]))
         for subj_id in tqdm(subj_list):
@@ -78,6 +81,7 @@ def process_data(orig_dir, save_dir, t2_suffix, seg_suffix, mask_suffix=None):
             # load tissue label
             tissue_label_nib = nib.load(subj_orig_dir+seg_suffix)
             tissue_label = tissue_label_nib.get_fdata()
+            
             ######################################
             # !!! Modify the following lines !!! #
             ######################################
@@ -98,9 +102,16 @@ def process_data(orig_dir, save_dir, t2_suffix, seg_suffix, mask_suffix=None):
                 direction=img_move_ants.direction)
 
             # affine registration
-            img_align_ants, affine_align, trans_rigid, trans_affine = \
-            registration(img_move_ants, img_fix_ants,
-                         affine_fix, out_prefix=subj_save_dir)
+            img_align_ants, affine_align, trans_rigid, \
+            trans_affine, align_dice = registration(
+                img_move_ants, img_fix_ants, affine_fix,
+                out_prefix=subj_save_dir, min_dice=min_dice)
+            if align_dice >= min_dice:
+                logger.info('Dice after registration: {}'.format(align_dice))
+            else:
+                logger.info('Error! Affine registration failed!')
+                logger.info('Expected Dice>{} after registraion, got Dice={}.'.format(
+                    min_dice, align_dice))
             
             # also align cortical ribbon
             ribbon_rigid_ants = ants.apply_transforms(
