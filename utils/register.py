@@ -113,16 +113,10 @@ def registration(
             / (mask_align + mask_fix).sum()
 
         if align_dice >= min_dice:
-            print('Dice after registration: {}'.format(align_dice))
             break
-            
-    if align_dice < min_dice:
-        print('Error! Affine registration failed!')
-        print('Expected Dice>{} after registraion, got Dice={}.'.format(
-            min_dice, align_dice))
         
     # affine matrix after affine registration
     affine_mat = affine_rigid @ affine_mat @ affine_fix
     
-    return img_align_ants, affine_mat, trans_rigid, trans_affine
+    return img_align_ants, affine_mat, trans_rigid, trans_affine, align_dice
 
