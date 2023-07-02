@@ -14,11 +14,11 @@ for fetal and neonatal structural brain MRI analysis. The pipeline is accelerate
 
 ### Python/PyTorch
 
-The dHCP DL-based surface pipeline is based on Python/PyTorch. We recommend to install [Anaconda](https://www.anaconda.com/download) and use ```conda``` to install the dependencies. After installing the Anaconda, you can run 
+The dHCP DL-based surface pipeline is based on Python/PyTorch. We recommend installing [Anaconda](https://www.anaconda.com/download) and use ```conda``` to install the dependencies. After installing the Anaconda, you can run 
 ```
 . install.sh
 ```
- which creates a new virtual environment ```dhcp``` and installs PyTorch as well as other required Python packages in the environment.
+to create a new virtual environment ```dhcp``` and install PyTorch as well as other required Python packages in the environment.
 
 Otherwise, if you do not have conda installation, you can run the following command to install the required packages with PyPI.
 ```
@@ -34,50 +34,52 @@ In addition, the Connectome Workbench is required for both pipeline (wb_command)
 
 ## Run Pipeline
 
-The inputs of the dHCP DL-based surface pipeline include bias-corrected T2 and T1 (optional) brain MRI images as well as a binary brain mask. The T1 image should be pre-aligned to the T2 MRI. Suppose you have bias-corrected T2, T1 images and brain masks in the following folders (note that the T1 image is optional)
+The inputs of the dHCP DL-based surface pipeline include original T2 and T1 (optional) brain MRI images as well as a binary brain mask (optional if the T2 image is already brain extracted). The T1 image should be pre-aligned to the T2 MRI. Suppose you have T2, T1 images and brain masks in the following directories
 
 ```
-./YOUR_INPUT_DIR/sub1/sub1_desc-restore_T2w.nii.gz
-./YOUR_INPUT_DIR/sub1/sub1_desc-restore_T1w.nii.gz
-./YOUR_INPUT_DIR/sub1/sub1_desc-brain_mask.nii.gz
-
-./YOUR_INPUT_DIR/sub2/sub2_desc-restore_T2w.nii.gz
-./YOUR_INPUT_DIR/sub2/sub2_desc-brain_mask.nii.gz
-
-...
+/YOUR_INPUT_DIR
+    /sub1
+        /sub1_T2w.nii.gz
+        /sub1_T1w.nii.gz
+        /sub1_brain_mask.nii.gz
+    /sub2
+        /sub1_T2w.nii.gz
+        /sub1_brain_mask.nii.gz
+    ...
 ```
 
 To process the subject ```sub1```, you can run the pipeline on GPU by
 ```
-python run_pipeline.py --in_dir='./YOUR_INPUT_DIR/sub1/' \
-                       --out_dir='./YOUR_OUTPUT_DIR/' \
-                       --T2='_desc-restore_T2w.nii.gz' \
-                       --T1='_desc-restore_T1w.nii.gz' \
-                       --mask='_desc-brain_mask.nii.gz' \
+python run_pipeline.py --in_dir='/YOUR_INPUT_DIR/sub1/' \
+                       --out_dir='/YOUR_OUTPUT_DIR/' \
+                       --T2='_T2w.nii.gz' \
+                       --T1='_T1w.nii.gz' \
+                       --mask='_brain_mask.nii.gz' \
                        --device='cuda:0'
 ```
 where ```in_dir``` is the directory containing the input images and ```out_dir``` is the directory to save the output files. ```T2```, ```T1``` and ```mask``` are the suffix of the input T2, T1 images and brain masks. The ```device``` tag indicates if the pipeline runs on a GPU or CPU.
 
 To process multiple subjects, you can run
 ```
-python run_pipeline.py --in_dir='./YOUR_INPUT_DIR/*/' \
-                       --out_dir='./YOUR_OUTPUT_DIR/' \
-                       --T2='_desc-restore_T2w.nii.gz' \
-                       --T1='_desc-restore_T1w.nii.gz' \
-                       --mask='_desc-brain_mask.nii.gz' \
+python run_pipeline.py --in_dir='/YOUR_INPUT_DIR/*/' \
+                       --out_dir='/YOUR_OUTPUT_DIR/' \
+                       --T2='_T2w.nii.gz' \
+                       --T1='_T1w.nii.gz' \
+                       --mask='_brain_mask.nii.gz' \
                        --device='cuda:0'
 ```
 
-This will search and process all files with the name ```./YOUR_INPUT_DIR/*/*_desc-restore_T2w.nii.gz```, and will save your output files (surfaces, spheres, etc.) to
+This will process all subjects and save your output files (surfaces, spheres, etc.) to
 ```
-./YOUR_OUTPUT_DIR/sub1/...
-./YOUR_OUTPUT_DIR/sub2/...
-...
+/YOUR_OUTPUT_DIR
+    /sub1
+        ...
+    /sub2
+        ...
+    ...
 ```
-
 
 For the details of all arguments, please run
 ```
-Python run_pipeline.py --help
+python run_pipeline.py --help
 ```
-
